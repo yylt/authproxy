@@ -28,8 +28,11 @@ endif
 COMMIT = $(shell git rev-parse --short HEAD)
 GIT_DIRTY  = $(shell test -n "`git status --porcelain`" && echo "dirty" || echo "clean")
 GOVER=$(shell go version | cut -d ' ' -f 3)
+REVERSION=$(shell git rev-parse HEAD)$(shell if ! git diff --no-ext-diff --quiet --exit-code; then echo .m; fi)
 GIT_BRANCH=$(shell git branch|grep ^\*| cut -d ' ' -f 2)
-PKG=github.com/yylt/rtspmux
+
+PKG=github.com/yylt/authproxy
+PACKAGE=github.com/yylt/authproxy/cmd
 
 GOPATHS=$(shell echo ${GOPATH} | tr ":" "\n" | tr ";" "\n")
 
@@ -37,10 +40,8 @@ GO_GCFLAGS=$(shell				\
 	set -- ${GOPATHS};			\
 	echo "-gcflags=-trimpath=$${1}/src";	\
 	)
-GO_LDFLAGS=-ldflags '-s -w -X $(PKG)/cmd.Version=$(COMMIT) -X $(PKG)/cmd.Revision=$(GOVER) -X $(PKG)/cmd.Dirty=$(GIT_DIRTY) -X $(PKG)/cmd.Branch=$(GIT_BRANCH)'
-GO_BUILD_FLAGS = $(shell echo -a -installsuffix cgo)
+GO_LDFLAGS=-ldflags '-s -w -X $(PKG)/version.Version=$(COMMIT) -X $(PKG)/version.Goversion=$(GOVER) -X $(PKG)/version.Dirty=$(GIT_DIRTY) -X $(PKG)/version.Branch=$(GIT_BRANCH)'
 
-PACKAGE=github.com/yylt/authproxy
 NAME=authproxy
 BINDIR=bin
 
@@ -53,4 +54,5 @@ binary:
 	@echo "git commit: ${COMMIT}; goversion: ${GOVER}"
 	@echo "git branch: ${GIT_BRANCH}; git dirty: ${GIT_DIRTY}"
 	go env -w CGO_ENABLED="0"
-	go build -o ${BINDIR}/${NAME}-${GOOS}-${GOARCH} ${GO_GCFLAGS} ${GO_BUILD_FLAGS} $(GO_LDFLAGS) ${PACKAGE}
+	go env -w GOPROXY=https://goproxy.cn/
+	go build -o ${BINDIR}/${NAME} ${GO_GCFLAGS} $(GO_LDFLAGS) ${PACKAGE}
