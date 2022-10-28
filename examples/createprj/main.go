@@ -4,27 +4,24 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"net/http"
 	"net/url"
 	"path"
-	"time"
 
 	"github.com/imroc/req/v3"
 )
 
-var csrfCook = http.Cookie{
-	Name:     "_gorilla_csrf",
-	Value:    "MTY2NjkxNzcwMnxJa0pwZHlzM2NsTktaRmM0YlVoRVRFOXdVR1ZSTm5oa0sxUXZTMEpNZG5kSGIxVkxZamhxTlc5RFRFVTlJZ289fJl42gPPeCFU1CWpY8fHIEngZeniXaRX1vzmkfU2mHJn",
-	Path:     "/",
-	Expires:  time.Now().Add(time.Hour),
-	MaxAge:   43200,
-	SameSite: http.SameSiteStrictMode,
-	HttpOnly: true,
+var client = req.C()
+
+type meta struct {
+	Public string `json:"public"`
+}
+type project struct {
+	Prj   string `json:"project_name"`
+	Meta  *meta  `json:"metadata"`
+	Limit int    `json:"storage_limit"`
 }
 
-var csrfHead = map[string]string{
-	"X-Harbor-CSRF-Token": "TTTEWKh2wYtI4O5Q+7azlj7YJZwzqGgSJTEy8EBomuJLGPq2HP+05G783J5fQSN9KaZqbrKGlBSEc6kCfgCSUw==",
-}
+const harborCsrfHead = "X-Harbor-Csrf-Token"
 
 func main() {
 	address := flag.String("a", "", "address about harbor, must startwith http: or https:")
@@ -59,45 +56,51 @@ func main() {
 		}
 	)
 
-	resp := req.C().Post(loginurl).
-		SetFormData(payload).
-		SetCookies(&csrfCook).
-		SetHeaders(csrfHead).
+	client.EnableDumpAll()
+
+	resp := login(loginurl, payload)
+
+	csrft := resp.GetHeader(harborCsrfHead)
+	jsonb := &project{
+		Prj: *prj,
+		Meta: &meta{
+			Public: "true",
+		},
+		Limit: -1,
+	}
+
+	resp = client.Post(createprjurl).
+		SetHeader(harborCsrfHead, csrft).
+		SetBodyJsonMarshal(jsonb).
 		Do()
+
 	if resp.Err != nil {
 		panic(resp.Err)
 	}
-	if resp.Response.StatusCode != 200 {
-		panic(fmt.Errorf("login failed, return code: %v, body:%s", resp.Response.StatusCode, string(resp.Bytes())))
-	}
-
-	respcs := append(resp.Response.Cookies(), &csrfCook)
-	resp = req.C().Post(createprjurl).
-		SetCookies(respcs...).
-		SetHeaders(csrfHead).
-		SetBodyJsonString(fmt.Sprintf(`{"project_name":"%s","metadata":{"public":"true"}"`, *prj)).
-		Do()
-
-	if resp.Err != nil {
-		panic(resp.Err)
-	}
-	if resp.Response.StatusCode != 200 {
-		panic(fmt.Errorf("login failed, return code: %v", resp.Response.StatusCode))
+	if resp.Response.StatusCode/100 != 2 {
+		panic(fmt.Errorf("create project failed, return code: %v", resp.Response.StatusCode))
 	}
 	log.Printf("create public project %s success.", *prj)
 	return
 }
 
-func validep(u *string) bool {
-	if u == nil {
-		panic("the endpoint is nil")
+func login(loginurl string, data map[string]string) *req.Response {
+	resp := client.Post(loginurl).
+		SetFormData(data).
+		Do()
+	if resp.Err != nil {
+		panic(resp.Err)
 	}
-	oriurl, err := url.Parse(*u)
-	if err != nil {
-		return false
+	if resp.Response.StatusCode/100 == 4 {
+		csrft := resp.GetHeader(harborCsrfHead)
+		resp = client.Post(loginurl).
+			SetFormData(data).
+			SetHeader(harborCsrfHead, csrft).
+			Do()
 	}
-	if oriurl.Host == "" || oriurl.Scheme == "" {
-		return false
+	if resp.Response.StatusCode != 200 {
+		panic(fmt.Errorf("login failed, return code: %v, body:%s", resp.Response.StatusCode, string(resp.Bytes())))
 	}
-	return true
+
+	return resp
 }
